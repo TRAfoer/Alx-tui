@@ -419,6 +419,14 @@ func (c *Client) Queue(ctx context.Context) (Queue, error) {
 	return q, err
 }
 
+// QueuePlay starts a zero-based queue position without replacing the queue.
+func (c *Client) QueuePlay(ctx context.Context, index int) error {
+	if index < 0 {
+		return errors.New("无效的队列位置")
+	}
+	return c.callAction(ctx, searchTimeout, "queue", "play", strconv.Itoa(index+1), "--json", "--no-color")
+}
+
 // Play starts a song by CLI ID (or URL / local path).
 func (c *Client) Play(ctx context.Context, id string) (PlayResult, error) {
 	var res PlayResult

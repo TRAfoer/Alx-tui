@@ -78,6 +78,13 @@ type playSongMsg struct {
 	seq  int
 }
 
+type queuePlayMsg struct {
+	song  alx.Song
+	index int
+	err   error
+	seq   int
+}
+
 type playerActionMsg struct {
 	action string
 	err    error
@@ -266,6 +273,13 @@ func cmdPlaySong(c *alx.Client, song alx.Song, seq int) tea.Cmd {
 	return func() tea.Msg {
 		res, err := c.Play(context.Background(), song.CLIID)
 		return playSongMsg{song: song, res: res, err: err, seq: seq}
+	}
+}
+
+func cmdPlayQueue(c *alx.Client, song alx.Song, index, seq int) tea.Cmd {
+	return func() tea.Msg {
+		err := c.QueuePlay(context.Background(), index)
+		return queuePlayMsg{song: song, index: index, err: err, seq: seq}
 	}
 }
 

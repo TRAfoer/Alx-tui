@@ -37,6 +37,7 @@ const (
 	HitPlaybackRepeat
 	HitPlaybackShuffle
 	HitLyricsRetry
+	HitQueueSong
 
 	HitSearchInput
 	HitSearchSource

@@ -102,6 +102,9 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case playSongMsg:
 		return a, a.handlePlaySong(msg)
 
+	case queuePlayMsg:
+		return a, a.handleQueuePlay(msg)
+
 	case playerActionMsg:
 		return a, a.handlePlayerAction(msg)
 
@@ -456,6 +459,8 @@ func (a *App) dispatchHit(hit Hit, mouseX, mouseY int) tea.Cmd {
 		return a.adjustVolume(5)
 	case HitLyricsRetry:
 		return a.retryLyrics()
+	case HitQueueSong:
+		return a.startQueuePlay(hit.Index)
 	case HitSearchInput:
 		a.page = PageSearch
 		a.searchFocus = true
@@ -895,6 +900,31 @@ func (a *App) handlePlaySong(msg playSongMsg) tea.Cmd {
 	}
 	a.showToast("正在播放："+truncate(song.Label(), 40), toastSuccess)
 	return tea.Batch(cmds...)
+}
+
+func (a *App) handleQueuePlay(msg queuePlayMsg) tea.Cmd {
+	if msg.seq != a.playSeq {
+		return nil
+	}
+	a.playPending = false
+	if msg.err != nil {
+		a.showToast("播放失败："+msg.err.Error(), toastError)
+		return a.refreshState()
+	}
+	song := msg.song
+	a.state.CurrentSong = &song
+	a.state.Status = "playing"
+	a.state.DaemonActive = true
+	a.state.Position = 0
+	a.state.Duration = song.Duration().Seconds()
+	a.state.QueueLength = len(a.queue)
+	a.stateAt = time.Now()
+	a.queueIndex = msg.index
+	a.queueManualUntil = time.Time{}
+	a.invalidateState()
+	a.invalidateQueue()
+	a.showToast("正在播放："+truncate(song.Label(), 40), toastSuccess)
+	return tea.Batch(a.loadLyrics(&song, true), a.refreshState(), a.refreshQueue())
 }
 
 func (a *App) handlePlayerAction(msg playerActionMsg) tea.Cmd {

@@ -94,7 +94,7 @@ func (a *App) renderPlaybackPage(r Rect) []string {
 	queueLines := make([]string, bodyH)
 	lyricsLines := make([]string, bodyH)
 	if columns {
-		queueLines = a.renderQueueBody(leftW, bodyH)
+		queueLines = a.renderQueueBody(innerX, r.Y+len(lines), leftW, bodyH)
 		lyricsLines = a.renderLyricsBody(rightW, bodyH)
 		a.queueArea = Rect{X: innerX, Y: r.Y + len(lines), W: leftW, H: bodyH}
 		a.lyricsArea = Rect{X: innerX + leftW + 5, Y: r.Y + len(lines), W: rightW, H: bodyH}
@@ -297,9 +297,9 @@ func (a *App) renderPlaybackControls(song *alx.Song, pending bool, x, y, width i
 	return truncate(b.String(), width)
 }
 
-func (a *App) renderQueueBody(width, height int) []string {
+func (a *App) renderQueueBody(x, y, width, height int) []string {
 	t := a.th
-	if height <= 0 {
+	if width <= 0 || height <= 0 {
 		return nil
 	}
 	out := make([]string, height)
@@ -330,6 +330,7 @@ func (a *App) renderQueueBody(width, height int) []string {
 			line += t.FaintText(" · " + truncate(prettyText(s.Singer), 10))
 		}
 		out[i-start] = padVisible(line, width)
+		a.addRowHit(HitQueueSong, x, y+i-start, width, "queue", i, s)
 	}
 	return out
 }

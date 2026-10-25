@@ -1,8 +1,11 @@
 package ui
 
 import (
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -69,6 +72,147 @@ func TestPlaybackHitsAndOverlays(t *testing.T) {
 	renderView(t, app)
 	if app.menu == nil || !app.menu.subOpen {
 		t.Fatal("menu did not open")
+	}
+}
+
+func TestPlaybackQueueClickPlaysVisibleSong(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		scroll   bool
+		wantID   string
+		wantName string
+	}{
+		{"initial rows", false, "queue-1", "Song 01"},
+		{"scrolled rows", true, "queue-4", "Song 04"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := testApp(120, 36, PagePlayback)
+			for i := 0; i < 40; i++ {
+				song := sampleSong()
+				song.CLIID = fmt.Sprintf("queue-%d", i)
+				song.Name = fmt.Sprintf("Song %02d", i)
+				app.queue = append(app.queue, song)
+			}
+			app.queueLoaded = true
+			app.queueIndex = 0
+			app.state = alx.PlayerState{CurrentSong: &app.queue[0], Status: "playing", QueueLength: 40}
+			lines := renderView(t, app)
+			if app.queueArea.Empty() {
+				t.Fatal("playback queue is not visible")
+			}
+			if tc.scroll {
+				app.Update(tea.MouseMsg{
+					X: app.queueArea.X, Y: app.queueArea.Y,
+					Action: tea.MouseActionPress, Button: tea.MouseButtonWheelDown,
+				})
+				lines = renderView(t, app)
+			}
+			x := app.queueArea.X + app.queueArea.W - 1
+			y := app.queueArea.Y + 1
+			if !strings.Contains(ansi.Strip(lines[y]), tc.wantName) {
+				t.Fatalf("clicked row does not display %q: %q", tc.wantName, ansi.Strip(lines[y]))
+			}
+			_, cmd := app.Update(tea.MouseMsg{
+				X: x, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+			})
+			if cmd == nil || !app.playPending || app.pendingSong.CLIID != tc.wantID {
+				t.Fatalf("click did not request visible song %q: pending=%v song=%+v command=%v", tc.wantID, app.playPending, app.pendingSong, cmd != nil)
+			}
+			if len(app.queue) != 40 || app.queueIndex != 0 {
+				t.Fatalf("click changed queue before playback succeeded: length=%d index=%d", len(app.queue), app.queueIndex)
+			}
+		})
+	}
+}
+
+func TestPlaybackQueueBlankRowsDoNotPlay(t *testing.T) {
+	app := testApp(120, 36, PagePlayback)
+	app.queue = []alx.Song{sampleSong()}
+	app.queueLoaded = true
+	renderView(t, app)
+	_, cmd := app.Update(tea.MouseMsg{
+		X: app.queueArea.X, Y: app.queueArea.Y + 1,
+		Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+	})
+	if cmd != nil || app.playPending {
+		t.Fatal("clicking an empty queue row requested playback")
+	}
+}
+
+func TestPlaybackQueueIgnoresClicksWhileLoading(t *testing.T) {
+	app := testApp(120, 36, PagePlayback)
+	first, second := sampleSong(), sampleSong()
+	second.CLIID = "other"
+	app.queue = []alx.Song{first, second}
+	app.queueLoaded = true
+	renderView(t, app)
+	click := tea.MouseMsg{
+		X: app.queueArea.X, Y: app.queueArea.Y,
+		Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+	}
+	if _, cmd := app.Update(click); cmd == nil || !app.playPending {
+		t.Fatal("first click did not start loading")
+	}
+	seq := app.playSeq
+	click.Y++
+	_, cmd := app.Update(click)
+	if cmd != nil || app.playSeq != seq || app.pendingSong.CLIID != first.CLIID {
+		t.Fatal("a second queue click started a competing playback request")
+	}
+}
+
+func TestPlaybackQueueClickPreservesQueue(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		response string
+		exitCode int
+		wantErr  bool
+	}{
+		{"success with duplicate song", `{"status":"playing"}`, 0, false},
+		{"backend failure", `{"error":"cannot load song"}`, 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := testApp(120, 36, PagePlayback)
+			client, logPath := testBackend(t, tc.response, tc.exitCode)
+			app.client = client
+			first := sampleSong()
+			second := sampleSong()
+			second.CLIID = "other"
+			app.queue = []alx.Song{first, second, first}
+			app.queueLoaded = true
+			app.queueIndex = 0
+			app.state = alx.PlayerState{CurrentSong: &first, Status: "paused", QueueLength: 3, Shuffle: true}
+			app.queueManualUntil = app.clock.Add(8 * time.Second)
+			wantQueue := append([]alx.Song(nil), app.queue...)
+			renderView(t, app)
+			_, cmd := app.Update(tea.MouseMsg{
+				X: app.queueArea.X, Y: app.queueArea.Y + 2,
+				Action: tea.MouseActionPress, Button: tea.MouseButtonLeft,
+			})
+			if cmd == nil {
+				t.Fatal("queue click did not request playback")
+			}
+			app.Update(cmd())
+			wantArgs := []string{"queue", "play", "3", "--json", "--no-color"}
+			if args := testBackendArgs(t, logPath); !reflect.DeepEqual(args, wantArgs) {
+				t.Fatalf("queue click command = %q, want %q", args, wantArgs)
+			}
+			if app.playPending || !app.queueLoaded || !reflect.DeepEqual(app.queue, wantQueue) {
+				t.Fatalf("queue was replaced or playback remained pending: pending=%v loaded=%v queue=%+v", app.playPending, app.queueLoaded, app.queue)
+			}
+			if tc.wantErr {
+				if app.queueIndex != 0 || app.state.Status != "paused" || !strings.Contains(app.toast.text, "cannot load song") {
+					t.Fatalf("failed playback changed current item or hid error: index=%d status=%q toast=%q", app.queueIndex, app.state.Status, app.toast.text)
+				}
+				return
+			}
+			if app.queueIndex != 2 || app.state.QueueLength != 3 || app.state.Status != "playing" || !app.state.Shuffle {
+				t.Fatalf("queue playback did not select the duplicate at index 2: index=%d state=%+v", app.queueIndex, app.state)
+			}
+			if !app.queueLoading || !app.queueManualUntil.IsZero() {
+				t.Fatal("queue playback did not refresh queue and resume following current item")
+			}
+		})
 	}
 }
 

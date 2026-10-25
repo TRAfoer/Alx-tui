@@ -106,6 +106,17 @@ func (a *App) startPlay(song alx.Song) tea.Cmd {
 	return cmdPlaySong(a.client, song, a.playSeq)
 }
 
+func (a *App) startQueuePlay(index int) tea.Cmd {
+	if a.playPending || !a.queueLoaded || index < 0 || index >= len(a.queue) {
+		return nil
+	}
+	a.playSeq++
+	a.playPending = true
+	a.playlistPending = false
+	a.pendingSong = a.queue[index]
+	return cmdPlayQueue(a.client, a.pendingSong, index, a.playSeq)
+}
+
 func (a *App) togglePause() tea.Cmd {
 	if a.playPending {
 		return nil
