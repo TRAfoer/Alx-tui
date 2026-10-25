@@ -21,7 +21,7 @@ type songColumns struct {
 }
 
 func newSongColumns(width int, allowAlbum bool) songColumns {
-	c := songColumns{prefix: 4, source: 5, duration: 5, showArtist: true, showAlbum: allowAlbum}
+	c := songColumns{prefix: 6, source: 5, duration: 5, showArtist: true, showAlbum: allowAlbum}
 	if width < 64 {
 		c.showArtist = false
 	}
@@ -96,7 +96,7 @@ func (c songColumns) row(t Theme, s alx.Song, index int, selected, playing bool)
 	if selected {
 		numStyle = t.AccentText
 	}
-	prefix := numStyle(marker+" ") + numStyle(fmt.Sprintf("%2d", index+1))
+	prefix := numStyle(marker) + numStyle(fmt.Sprintf("%-4d", index+1))
 	prefix = padVisible(prefix, c.prefix)
 
 	titleStyle := lipgloss.NewStyle().Foreground(t.Text)
