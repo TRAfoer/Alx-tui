@@ -1,6 +1,7 @@
-# alx-tui
+###### alx-tui
 
 基于 Go / Bubble Tea 的音乐界面，固定调用 Lx-Cli。支持搜索、播放、音源管理、歌单链接导入、歌词、下载及外观设置。
+(https://github.com/TRAfoer/Lx-cli)
 
 ## 构建与使用
 
