@@ -1,0 +1,13 @@
+/bin/
+/dist/
+/alx-tui
+/alx/
+/alx-config/
+*.exe
+*.exe.bak
+*.test
+*.out
+*.db
+*.db-wal
+*.db-shm
+*.log
