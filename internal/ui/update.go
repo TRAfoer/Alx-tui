@@ -92,9 +92,15 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.handleLyrics(msg)
 		return a, nil
 
+	case playlistSearchMsg:
+		a.handlePlaylistSearchResult(msg)
+		return a, nil
+	case playlistPreviewMsg:
+		a.handlePlaylistPreview(msg)
+		return a, nil
 	case searchMsg:
 		a.handleSearchResult(msg)
-		if msg.err == nil && a.page == PageSearch {
+		if msg.err == nil && a.page == PageSearch && a.searchMode == searchSongs && msg.seq == a.searchSeq {
 			return a, a.searchInput.Focus()
 		}
 		return a, nil
@@ -160,7 +166,7 @@ func (a *App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if a.dlg != nil && a.dlg.hasInput {
 		a.dlg.input, cmd = a.dlg.input.Update(msg)
 	} else if a.page == PageSearch && a.searchFocus {
-		a.searchInput, cmd = a.searchInput.Update(msg)
+		cmd = a.updateSearchInput(msg)
 	}
 	return a, cmd
 }
@@ -216,6 +222,18 @@ func (a *App) handleKey(msg tea.KeyMsg) tea.Cmd {
 
 func (a *App) handleSearchKey(msg tea.KeyMsg, typing bool) tea.Cmd {
 	key := msg.String()
+	if key == "ctrl+t" {
+		if a.searchMode == searchSongs {
+			return a.setSearchMode(searchPlaylists)
+		}
+		return a.setSearchMode(searchSongs)
+	}
+	if a.playlistPreview {
+		return a.handlePlaylistPreviewKey(msg)
+	}
+	if key == "ctrl+o" && a.searchMode == searchPlaylists {
+		return a.openSearchPlaylistImport()
+	}
 	if !typing {
 		switch key {
 		case "/", "i":
@@ -224,7 +242,7 @@ func (a *App) handleSearchKey(msg tea.KeyMsg, typing bool) tea.Cmd {
 			if a.searchSubmitted == "" {
 				return a.focusSearch()
 			}
-			return a.playSelectedSong()
+			return a.activateSearchSelection()
 		case "up":
 			a.searchSelect(-1)
 			return nil
@@ -237,7 +255,7 @@ func (a *App) handleSearchKey(msg tea.KeyMsg, typing bool) tea.Cmd {
 			}
 			return nil
 		case "]", "pgdown":
-			if !a.searchLoading && len(a.searchResults) >= a.searchLimit {
+			if a.canSearchNext() {
 				return a.startSearch(a.searchPage + 1)
 			}
 			return nil
@@ -258,14 +276,14 @@ func (a *App) handleSearchKey(msg tea.KeyMsg, typing bool) tea.Cmd {
 	switch key {
 	case "enter":
 		dirty := strings.TrimSpace(a.searchInput.Value()) != a.searchSubmitted ||
-			a.searchSubmittedSource != a.searchSource
+			a.searchSubmittedSource != a.activeSearchSource()
 		if dirty || a.searchErr != nil {
 			return a.startSearch(1)
 		}
 		if a.searchLoading {
 			return nil
 		}
-		return a.playSelectedSong()
+		return a.activateSearchSelection()
 	case "esc":
 		a.blurSearch()
 		return nil
@@ -281,14 +299,12 @@ func (a *App) handleSearchKey(msg tea.KeyMsg, typing bool) tea.Cmd {
 		}
 		return nil
 	case "pgdown":
-		if !a.searchLoading && len(a.searchResults) >= a.searchLimit {
+		if a.canSearchNext() {
 			return a.startSearch(a.searchPage + 1)
 		}
 		return nil
 	default:
-		var cmd tea.Cmd
-		a.searchInput, cmd = a.searchInput.Update(msg)
-		return cmd
+		return a.updateSearchInput(msg)
 	}
 }
 
@@ -405,7 +421,11 @@ func (a *App) handleMouse(msg tea.MouseMsg) tea.Cmd {
 		if ok {
 			switch hit.Kind {
 			case HitSearchResult:
-				a.searchSelected = hit.Index
+				if a.playlistPreview {
+					a.previewSelected = hit.Index
+				} else {
+					a.searchSelected = hit.Index
+				}
 				a.openSongMenu(hit.Song, "search", msg.X, msg.Y)
 			case HitPlaylistSong:
 				a.playlistSongSelected = hit.Index
@@ -461,6 +481,15 @@ func (a *App) dispatchHit(hit Hit, mouseX, mouseY int) tea.Cmd {
 		return a.retryLyrics()
 	case HitQueueSong:
 		return a.startQueuePlay(hit.Index)
+	case HitSearchMode:
+		return a.setSearchMode(searchMode(hit.Index))
+	case HitRemotePlaylist:
+		return a.openSearchPlaylist(hit.Index)
+	case HitSearchBack:
+		a.backSearchPlaylists()
+		return nil
+	case HitSearchImport:
+		return a.openSearchPlaylistImport()
 	case HitSearchInput:
 		a.page = PageSearch
 		a.searchFocus = true
@@ -468,14 +497,18 @@ func (a *App) dispatchHit(hit Hit, mouseX, mouseY int) tea.Cmd {
 	case HitSearchSource:
 		return a.chooseSearchSource(hit.Value)
 	case HitSearchResult:
-		a.searchSelected = hit.Index
+		if a.playlistPreview {
+			a.previewSelected = hit.Index
+		} else {
+			a.searchSelected = hit.Index
+		}
 		return a.startPlay(hit.Song)
 	case HitSearchPrev:
 		if a.searchPage > 1 && !a.searchLoading {
 			return a.startSearch(a.searchPage - 1)
 		}
 	case HitSearchNext:
-		if !a.searchLoading {
+		if a.canSearchNext() {
 			return a.startSearch(a.searchPage + 1)
 		}
 	case HitPlaylistRow:
@@ -562,6 +595,17 @@ func (a *App) seekFromBar(bar Rect, mouseX int) tea.Cmd {
 }
 
 func (a *App) chooseSearchSource(code string) tea.Cmd {
+	if a.searchMode == searchPlaylists && a.page == PageSearch {
+		if code != "all" && code != "wy" && code != "tx" {
+			return nil
+		}
+		changed := a.activeSearchSource() != code
+		a.playlistSearchSource = code
+		if changed && a.searchSubmitted != "" {
+			return a.startSearch(1)
+		}
+		return nil
+	}
 	if code == "" {
 		return nil
 	}
@@ -583,7 +627,11 @@ func (a *App) handleWheel(msg tea.MouseMsg) tea.Cmd {
 	case PageSearch:
 		if a.searchResultsArea.Contains(msg.X, msg.Y) {
 			h := max(1, a.searchResultsArea.H)
-			a.searchScroll = clamp(a.searchScroll+delta, 0, max(0, len(a.searchResults)-h))
+			if a.playlistPreview {
+				a.previewScroll = clamp(a.previewScroll+delta, 0, max(0, len(a.preview.Songs)-h))
+			} else {
+				a.searchScroll = clamp(a.searchScroll+delta, 0, max(0, a.searchCount()-h))
+			}
 		}
 	case PagePlayback:
 		if a.lyricsArea.Contains(msg.X, msg.Y) && len(a.lyrics.Lines) > 0 {
@@ -849,7 +897,7 @@ func (a *App) handleLyrics(msg lyricsMsg) {
 }
 
 func (a *App) handleSearchResult(msg searchMsg) {
-	if msg.seq != a.searchSeq {
+	if msg.seq != a.searchSeq || a.searchMode != searchSongs {
 		return
 	}
 	a.searchLoading = false
@@ -1042,7 +1090,7 @@ func (a *App) handleConfigSet(msg configSetMsg) tea.Cmd {
 		return nil
 	}
 	a.showToast("设置已保存", toastSuccess)
-	if msg.key == "source.default_source" &&
+	if msg.key == "source.default_source" && a.searchMode == searchSongs &&
 		a.searchSubmitted != "" && a.searchSubmittedSource != a.searchSource {
 		return a.startSearch(1)
 	}

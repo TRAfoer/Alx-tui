@@ -12,6 +12,9 @@ var searchPlatforms = []string{"all", "wy", "tx", "kg", "kw", "mg"}
 
 func (a *App) renderSearchPage(r Rect) []string {
 	t := a.th
+	if a.playlistPreview {
+		return a.renderPlaylistPreview(r)
+	}
 	if r.H <= 0 || r.W <= 0 {
 		return nil
 	}
@@ -34,7 +37,11 @@ func (a *App) renderSearchPage(r Rect) []string {
 		right = t.FaintText("输入关键词开始搜索")
 	}
 	heading := t.Bold(t.Accent, "搜索") + "  " + t.FaintText("SEARCH")
+	if a.searchMode == searchPlaylists && !a.searchLoading && a.searchSubmitted != "" {
+		right = t.FaintText(fmt.Sprintf("第 %d 页 · %d 个 / %d", max(1, a.searchPage), len(a.remotePlaylists), a.playlistSearchTotal))
+	}
 	lines = append(lines, padVisible(composeLR(heading, right, innerW), innerW))
+	lines = append(lines, a.renderSearchModes(innerX, r.Y+len(lines), innerW))
 
 	// Input box (3 rows).
 	borderColor := t.Border
@@ -50,7 +57,11 @@ func (a *App) renderSearchPage(r Rect) []string {
 		if a.searchFocus {
 			cursor = a.fakeCursor()
 		}
-		inputView = t.AccentText(a.searchInput.Prompt) + cursor + t.FaintText("搜索歌曲、歌手或专辑…")
+		placeholder := "搜索歌曲、歌手或专辑…"
+		if a.searchMode == searchPlaylists {
+			placeholder = "搜索在线歌单…"
+		}
+		inputView = t.AccentText(a.searchInput.Prompt) + cursor + t.FaintText(placeholder)
 	}
 	inputView = padVisible(inputView, inputInner)
 	top := t.FrameTop("", innerW, borderColor)
@@ -66,7 +77,11 @@ func (a *App) renderSearchPage(r Rect) []string {
 		chipLine = ""
 	}
 	x := innerX + displayWidth(chipLine)
-	for i, code := range searchPlatforms {
+	platforms := searchPlatforms
+	if a.searchMode == searchPlaylists {
+		platforms = []string{"all", "wy", "tx"}
+	}
+	for i, code := range platforms {
 		label := sourceLabel(code)
 		if innerW < 84 {
 			if code == "all" {
@@ -75,7 +90,7 @@ func (a *App) renderSearchPage(r Rect) []string {
 				label = strings.ToUpper(code)
 			}
 		}
-		active := a.searchSource == code
+		active := a.activeSearchSource() == code
 		chip := t.ActiveChip(label, active)
 		chipW := displayWidth(chip)
 		if x-innerX+chipW > innerW {
@@ -84,17 +99,28 @@ func (a *App) renderSearchPage(r Rect) []string {
 		chipLine += chip
 		a.addHit(HitSearchSource, Rect{X: x, Y: r.Y + len(lines), W: chipW, H: 1}, code, i, alx.Song{})
 		x += chipW
-		if i < len(searchPlatforms)-1 {
+		if i < len(platforms)-1 {
 			chipLine += " "
 			x++
 		}
 	}
 	lines = append(lines, padVisible(chipLine, innerW))
+	if a.searchMode == searchPlaylists {
+		label := t.AccentText("导入 (Ctrl+O)")
+		a.addHit(HitSearchImport, Rect{X: innerX, Y: r.Y + len(lines), W: displayWidth(label), H: 1}, "", 0, alx.Song{})
+		lines = append(lines, padVisible(label+"  "+t.FaintText("Enter / 点击预览"), innerW))
+	}
+	if len(a.searchWarnings) > 0 {
+		lines = append(lines, t.FaintText(truncate(strings.Join(a.searchWarnings, "; "), innerW)))
+	}
 	lines = append(lines, t.Sep(innerW))
 
 	// Table header.
 	cols := newSongColumns(innerW, true)
 	tableHeader := cols.header(t)
+	if a.searchMode == searchPlaylists {
+		tableHeader = t.FaintText("  歌单 / 创建者                         平台 · 歌曲 · 播放")
+	}
 	lines = append(lines, padVisible(tableHeader, innerW))
 
 	if len(lines) >= r.H {
@@ -108,7 +134,12 @@ func (a *App) renderSearchPage(r Rect) []string {
 
 	bodyY := r.Y + len(lines)
 	a.searchResultsArea = Rect{X: innerX, Y: bodyY, W: innerW, H: bodyH}
-	body := a.searchBody(innerX, bodyY, innerW, bodyH, cols)
+	var body []string
+	if a.searchMode == searchPlaylists {
+		body = a.remotePlaylistBody(innerX, bodyY, innerW, bodyH)
+	} else {
+		body = a.searchBody(innerX, bodyY, innerW, bodyH, cols)
+	}
 	lines = append(lines, body...)
 
 	// Pagination row.
@@ -170,7 +201,7 @@ func (a *App) renderSearchNav(x, y, width int) string {
 		prev = t.AccentText("‹ 上一页")
 		prevHit = Rect{X: x, Y: y, W: displayWidth(prev), H: 1}
 	}
-	if len(a.searchResults) >= a.searchLimit && !a.searchLoading {
+	if a.canSearchNext() {
 		next = t.AccentText("下一页 ›")
 		nextHit = Rect{X: x + width - displayWidth(next), Y: y, W: displayWidth(next), H: 1}
 	}
@@ -226,7 +257,7 @@ func verticalCenter(lines []string, height, width int) []string {
 }
 
 func (a *App) focusSearch() tea.Cmd {
-	if a.page != PageSearch {
+	if a.page != PageSearch || a.playlistPreview {
 		return nil
 	}
 	a.searchFocus = true
@@ -254,9 +285,18 @@ func (a *App) startSearch(page int) tea.Cmd {
 	a.searchErr = nil
 	a.searchPage = page
 	a.searchSubmitted = keyword
-	a.searchSubmittedSource = a.searchSource
+	a.searchSubmittedSource = a.activeSearchSource()
 	a.searchSelected = 0
 	a.searchScroll = 0
+	a.searchWarnings = nil
+	if a.playlistPreview {
+		a.backSearchPlaylists()
+	} else {
+		a.previewSeq++
+	}
 	a.searchInput.CursorEnd()
+	if a.searchMode == searchPlaylists {
+		return cmdSearchPlaylists(a.client, seq, keyword, a.activeSearchSource(), page, a.searchLimit)
+	}
 	return cmdSearch(a.client, seq, keyword, a.searchSource, page, a.searchLimit)
 }

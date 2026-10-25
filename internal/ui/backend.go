@@ -85,7 +85,7 @@ func commandForEpoch(life *backendLifecycle, epoch uint64, cmd tea.Cmd) tea.Cmd 
 		// those intact so Quit, ClearScreen, focus and cursor commands work.
 		switch msg.(type) {
 		case infoMsg, configMsg, sourcesMsg, playlistsMsg, playlistSongsMsg,
-			stateMsg, queueMsg, lyricsMsg, searchMsg, playSongMsg, queuePlayMsg, playerActionMsg,
+			stateMsg, queueMsg, lyricsMsg, searchMsg, playlistSearchMsg, playlistPreviewMsg, playSongMsg, queuePlayMsg, playerActionMsg,
 			playlistPlayMsg, addToPlaylistMsg, removeFromPlaylistMsg, downloadAddMsg,
 			queueAddMsg, configSetMsg, addSourceMsg, removeSourceMsg, createPlaylistMsg,
 			importPlaylistMsg, renamePlaylistMsg, deletePlaylistMsg,

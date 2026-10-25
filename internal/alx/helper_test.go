@@ -38,6 +38,9 @@ func runFakeALX() int {
 		args = args[2:]
 	}
 	switch os.Getenv("FAKE_SCENARIO") {
+	case "playlist-response":
+		fmt.Println(os.Getenv("FAKE_RESPONSE"))
+		return 0
 	case "version-output":
 		if len(args) != 1 || args[0] != "--version" {
 			return 2

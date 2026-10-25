@@ -405,3 +405,32 @@ func cmdDeletePlaylist(c *alx.Client, name string, seq int) tea.Cmd {
 		return deletePlaylistMsg{name: name, seq: seq, err: err}
 	}
 }
+
+type playlistSearchMsg struct {
+	seq             int
+	keyword, source string
+	page            int
+	result          alx.PlaylistSearchResult
+	err             error
+}
+
+type playlistPreviewMsg struct {
+	seq    int
+	link   string
+	result alx.ImportedPlaylist
+	err    error
+}
+
+func cmdSearchPlaylists(c *alx.Client, seq int, keyword, source string, page, limit int) tea.Cmd {
+	return func() tea.Msg {
+		result, err := c.SearchPlaylists(context.Background(), keyword, source, page, limit)
+		return playlistSearchMsg{seq: seq, keyword: keyword, source: source, page: page, result: result, err: err}
+	}
+}
+
+func cmdInspectPlaylist(c *alx.Client, seq int, link string) tea.Cmd {
+	return func() tea.Msg {
+		result, err := c.InspectPlaylist(context.Background(), link)
+		return playlistPreviewMsg{seq: seq, link: link, result: result, err: err}
+	}
+}

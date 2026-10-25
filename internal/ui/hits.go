@@ -39,6 +39,10 @@ const (
 	HitLyricsRetry
 	HitQueueSong
 
+	HitSearchMode
+	HitRemotePlaylist
+	HitSearchBack
+	HitSearchImport
 	HitSearchInput
 	HitSearchSource
 	HitSearchResult

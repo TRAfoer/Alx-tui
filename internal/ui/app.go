@@ -148,6 +148,20 @@ type App struct {
 	lyricsManualUntil time.Time
 
 	// search
+	searchMode            searchMode
+	playlistSearchSource  string
+	remotePlaylists       []alx.RemotePlaylist
+	playlistSearchHasMore bool
+	playlistSearchTotal   int
+	searchWarnings        []string
+	playlistPreview       bool
+	previewLink           string
+	preview               alx.ImportedPlaylist
+	previewLoading        bool
+	previewErr            error
+	previewSeq            int
+	previewSelected       int
+	previewScroll         int
 	searchInput           textinput.Model
 	searchResults         []alx.Song
 	searchSubmitted       string
@@ -718,7 +732,7 @@ func pageHelpForWidth(p Page, width int) string {
 		case PagePlayback:
 			return "Space 播放  ←→ 快进  ↑↓ 音量  右键 菜单"
 		case PageSearch:
-			return "Enter 搜索/播放  / 输入  ↑↓ 选择  右键 菜单"
+			return "Ctrl+T 歌曲/歌单  Enter 打开/播放  Ctrl+O 导入"
 		case PagePlaylists:
 			return "↑↓ 选择  Enter 播放  n 新建  i 导入"
 		case PageSettings:
@@ -733,7 +747,7 @@ func pageHelp(p Page) string {
 	case PagePlayback:
 		return "Space 播放/暂停   ←/→ 快退/快进   ↑/↓ 音量   右键正在播放 更多   Tab 切页"
 	case PageSearch:
-		return "Enter 搜索/播放   / 输入   ↑/↓ 选择   PgUp/PgDn 翻页   右键 更多   Tab 切页"
+		return "Ctrl+T 歌曲/歌单   Enter 搜索/打开/播放   Ctrl+O 导入   Esc 返回   PgUp/PgDn 翻页   右键 更多"
 	case PagePlaylists:
 		return "↑/↓ 选择   Enter 打开/播放   n 新建   i 导入链接   d 删除   右键歌曲 更多   Tab 切页"
 	case PageSettings:

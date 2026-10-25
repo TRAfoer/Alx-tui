@@ -314,11 +314,15 @@ func (a *App) refreshSearchPage(page int) tea.Cmd {
 }
 
 func (a *App) searchSelect(delta int) {
-	if len(a.searchResults) == 0 {
+	if a.searchCount() == 0 {
 		return
 	}
-	a.searchSelected = clamp(a.searchSelected+delta, 0, len(a.searchResults)-1)
-	ensureVisible(a.searchSelected, &a.searchScroll, max(1, a.searchResultsArea.H), len(a.searchResults))
+	old := a.searchSelected
+	a.searchSelected = clamp(a.searchSelected+delta, 0, a.searchCount()-1)
+	if old != a.searchSelected {
+		a.previewSeq++
+	}
+	ensureVisible(a.searchSelected, &a.searchScroll, max(1, a.searchResultsArea.H), a.searchCount())
 }
 
 func (a *App) playlistSongSelect(delta int) {
